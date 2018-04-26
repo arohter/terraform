@@ -4,16 +4,13 @@ import (
 	"fmt"
 	"log"
 	"runtime/debug"
-	"strings"
+
+	"github.com/hashicorp/terraform/tfdiags"
+
+	"github.com/hashicorp/terraform/addrs"
 
 	"github.com/hashicorp/terraform/dag"
 )
-
-// RootModuleName is the name given to the root module implicitly.
-const RootModuleName = "root"
-
-// RootModulePath is the path for the root module.
-var RootModulePath = []string{RootModuleName}
 
 // Graph represents the graph that Terraform uses to represent resources
 // and their dependencies.
@@ -23,9 +20,7 @@ type Graph struct {
 	dag.AcyclicGraph
 
 	// Path is the path in the module tree that this Graph represents.
-	// The root is represented by a single element list containing
-	// RootModuleName
-	Path []string
+	Path addrs.ModuleInstance
 
 	// debugName is a name for reference in the debug output. This is usually
 	// to indicate what topmost builder was, and if this graph is a shadow or
@@ -40,17 +35,17 @@ func (g *Graph) DirectedGraph() dag.Grapher {
 // Walk walks the graph with the given walker for callbacks. The graph
 // will be walked with full parallelism, so the walker should expect
 // to be called in concurrently.
-func (g *Graph) Walk(walker GraphWalker) error {
+func (g *Graph) Walk(walker GraphWalker) tfdiags.Diagnostics {
 	return g.walk(walker)
 }
 
-func (g *Graph) walk(walker GraphWalker) error {
+func (g *Graph) walk(walker GraphWalker) tfdiags.Diagnostics {
 	// The callbacks for enter/exiting a graph
 	ctx := walker.EnterPath(g.Path)
 	defer walker.ExitPath(g.Path)
 
 	// Get the path for logs
-	path := strings.Join(ctx.Path(), ".")
+	path := ctx.Path().String()
 
 	// Determine if our walker is a panic wrapper
 	panicwrap, ok := walker.(GraphWalkerPanicwrapper)
@@ -69,7 +64,7 @@ func (g *Graph) walk(walker GraphWalker) error {
 
 	// Walk the graph.
 	var walkFn dag.WalkFunc
-	walkFn = func(v dag.Vertex) (rerr error) {
+	walkFn = func(v dag.Vertex) (diags tfdiags.Diagnostics) {
 		log.Printf("[TRACE] vertex '%s.%s': walking", path, dag.VertexName(v))
 		g.DebugVisitInfo(v, g.debugName)
 
@@ -89,22 +84,21 @@ func (g *Graph) walk(walker GraphWalker) error {
 			}
 
 			// Modify the return value to show the error
-			rerr = fmt.Errorf("vertex %q captured panic: %s\n\n%s",
-				dag.VertexName(v), err, debug.Stack())
+			diags = diags.Append(fmt.Errorf("vertex %q captured panic: %s\n\n%s", dag.VertexName(v), err, debug.Stack()))
 
 			// Call the panic wrapper
 			panicwrap.Panic(v, err)
 		}()
 
 		walker.EnterVertex(v)
-		defer walker.ExitVertex(v, rerr)
+		defer walker.ExitVertex(v, diags)
 
 		// vertexCtx is the context that we use when evaluating. This
 		// is normally the context of our graph but can be overridden
 		// with a GraphNodeSubPath impl.
 		vertexCtx := ctx
 		if pn, ok := v.(GraphNodeSubPath); ok && len(pn.Path()) > 0 {
-			vertexCtx = walker.EnterPath(normalizeModulePath(pn.Path()))
+			vertexCtx = walker.EnterPath(pn.Path())
 			defer walker.ExitPath(pn.Path())
 		}
 
@@ -124,7 +118,8 @@ func (g *Graph) walk(walker GraphWalker) error {
 
 			tree = walker.EnterEvalTree(v, tree)
 			output, err := Eval(tree, vertexCtx)
-			if rerr = walker.ExitEvalTree(v, output, err); rerr != nil {
+			diags = diags.Append(walker.ExitEvalTree(v, output, err))
+			if diags.HasErrors() {
 				return
 			}
 		}
@@ -140,12 +135,14 @@ func (g *Graph) walk(walker GraphWalker) error {
 
 			g, err := ev.DynamicExpand(vertexCtx)
 			if err != nil {
-				rerr = err
+				diags = diags.Append(err)
 				return
 			}
 			if g != nil {
 				// Walk the subgraph
-				if rerr = g.walk(walker); rerr != nil {
+				subDiags := g.walk(walker)
+				diags = diags.Append(subDiags)
+				if subDiags.HasErrors() {
 					return
 				}
 			}
@@ -160,12 +157,13 @@ func (g *Graph) walk(walker GraphWalker) error {
 
 			g.DebugVertexInfo(v, fmt.Sprintf("subgraph: %T(%s)", v, path))
 
-			if rerr = sn.Subgraph().(*Graph).walk(walker); rerr != nil {
+			subDiags := sn.Subgraph().(*Graph).walk(walker)
+			if subDiags.HasErrors() {
 				return
 			}
 		}
 
-		return nil
+		return
 	}
 
 	return g.AcyclicGraph.Walk(walkFn)

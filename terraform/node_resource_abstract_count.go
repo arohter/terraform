@@ -12,6 +12,10 @@ type NodeAbstractCountResource struct {
 	Validate bool
 }
 
+var (
+	_ GraphNodeEvalable = (*NodeAbstractCountResource)(nil)
+)
+
 // GraphNodeEvalable
 func (n *NodeAbstractCountResource) EvalTree() EvalNode {
 	// We only check if the count is computed if we're not validating.
@@ -44,7 +48,7 @@ func (n *NodeAbstractCountResource) EvalTree() EvalNode {
 				Then: &EvalValidateCount{Resource: n.Config},
 			},
 
-			&EvalCountFixZeroOneBoundary{Resource: n.Config},
+			&EvalCountFixZeroOneBoundary{Config: n.Config},
 		},
 	}
 }

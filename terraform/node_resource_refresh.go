@@ -81,7 +81,7 @@ func (n *NodeRefreshableManagedResource) DynamicExpand(ctx EvalContext) (*Graph,
 // NodeRefreshableManagedResourceInstance represents a resource that is "applyable":
 // it is ready to be applied and is represented by a diff.
 type NodeRefreshableManagedResourceInstance struct {
-	*NodeAbstractResource
+	*NodeAbstractResourceInstance
 }
 
 // GraphNodeDestroyer

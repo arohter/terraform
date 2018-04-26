@@ -2,6 +2,8 @@ package terraform
 
 import (
 	"fmt"
+
+	"github.com/hashicorp/terraform/addrs"
 )
 
 // ImportStateTransformer is a GraphTransformer that adds nodes to the
@@ -36,39 +38,44 @@ func (t *ImportStateTransformer) Transform(g *Graph) error {
 }
 
 type graphNodeImportState struct {
-	Addr             *ResourceAddress // Addr is the resource address to import to
-	ID               string           // ID is the ID to import as
-	ProviderName     string           // Provider string
-	ResolvedProvider string           // provider node address
+	Addr             addrs.AbsResourceInstance // Addr is the resource address to import into
+	ID               string                    // ID is the ID to import as
+	ProviderAddr     addrs.AbsProviderConfig   // Provider address given by the user
+	ResolvedProvider addrs.AbsProviderConfig   // provider node address after resolution
 
 	states []*InstanceState
 }
+
+var (
+	_ GraphNodeSubPath           = (*graphNodeImportState)(nil)
+	_ GraphNodeEvalable          = (*graphNodeImportState)(nil)
+	_ GraphNodeProviderConsumer  = (*graphNodeImportState)(nil)
+	_ GraphNodeDynamicExpandable = (*graphNodeImportState)(nil)
+)
 
 func (n *graphNodeImportState) Name() string {
 	return fmt.Sprintf("%s (import id: %s)", n.Addr, n.ID)
 }
 
-func (n *graphNodeImportState) ProvidedBy() string {
-	return resourceProvider(n.Addr.Type, n.ProviderName)
+// GraphNodeProviderConsumer
+func (n *graphNodeImportState) ProvidedBy() (addrs.AbsProviderConfig, bool) {
+	return n.ProviderAddr, false
 }
 
-func (n *graphNodeImportState) SetProvider(p string) {
-	n.ResolvedProvider = p
+// GraphNodeProviderConsumer
+func (n *graphNodeImportState) SetProvider(addr addrs.AbsProviderConfig) {
+	n.ResolvedProvider = addr
 }
 
 // GraphNodeSubPath
-func (n *graphNodeImportState) Path() []string {
-	return normalizeModulePath(n.Addr.Path)
+func (n *graphNodeImportState) Path() addrs.ModuleInstance {
+	return n.Addr.Module
 }
 
 // GraphNodeEvalable impl.
 func (n *graphNodeImportState) EvalTree() EvalNode {
 	var provider ResourceProvider
-	info := &InstanceInfo{
-		Id:         fmt.Sprintf("%s.%s", n.Addr.Type, n.Addr.Name),
-		ModulePath: n.Path(),
-		Type:       n.Addr.Type,
-	}
+	info := NewInstanceInfo(n.Addr.ContainingResource())
 
 	// Reset our states
 	n.states = nil
@@ -77,7 +84,7 @@ func (n *graphNodeImportState) EvalTree() EvalNode {
 	return &EvalSequence{
 		Nodes: []EvalNode{
 			&EvalGetProvider{
-				Name:   n.ResolvedProvider,
+				Addr:   n.ResolvedProvider.ProviderConfig,
 				Output: &provider,
 			},
 			&EvalImportState{
@@ -182,6 +189,11 @@ type graphNodeImportStateSub struct {
 	ProviderName     string
 	ResolvedProvider string
 }
+
+var (
+	_ GraphNodeSubPath  = (*graphNodeImportState)(nil)
+	_ GraphNodeEvalable = (*graphNodeImportState)(nil)
+)
 
 func (n *graphNodeImportStateSub) Name() string {
 	return fmt.Sprintf("import %s result: %s", n.Target, n.State.ID)

@@ -3,22 +3,33 @@ package terraform
 import (
 	"fmt"
 
+	"github.com/hashicorp/terraform/addrs"
+
 	"github.com/hashicorp/terraform/config"
 )
 
-// NodeApplyableResource represents a resource that is "applyable":
+// NodeApplyableResourceInstance represents a resource that is "applyable":
 // it is ready to be applied and is represented by a diff.
-type NodeApplyableResource struct {
-	*NodeAbstractResource
+type NodeApplyableResourceInstance struct {
+	*NodeAbstractResourceInstance
 }
 
+var (
+	_ GraphNodeResource         = (*NodeApplyableResourceInstance)(nil)
+	_ GraphNodeResourceInstance = (*NodeApplyableResourceInstance)(nil)
+	_ GraphNodeCreator          = (*NodeApplyableResourceInstance)(nil)
+	_ GraphNodeReferencer       = (*NodeApplyableResourceInstance)(nil)
+	_ GraphNodeEvalable         = (*NodeApplyableResourceInstance)(nil)
+)
+
 // GraphNodeCreator
-func (n *NodeApplyableResource) CreateAddr() *ResourceAddress {
-	return n.NodeAbstractResource.Addr
+func (n *NodeApplyableResourceInstance) CreateAddr() *addrs.AbsResourceInstance {
+	addr := n.ResourceInstanceAddr()
+	return &addr
 }
 
 // GraphNodeReferencer, overriding NodeAbstractResource
-func (n *NodeApplyableResource) References() []string {
+func (n *NodeApplyableResourceInstance) References() []string {
 	result := n.NodeAbstractResource.References()
 
 	// The "apply" side of a resource generally also depends on the
@@ -48,38 +59,30 @@ func (n *NodeApplyableResource) References() []string {
 }
 
 // GraphNodeEvalable
-func (n *NodeApplyableResource) EvalTree() EvalNode {
-	addr := n.NodeAbstractResource.Addr
+func (n *NodeApplyableResourceInstance) EvalTree() EvalNode {
+	addr := n.ResourceInstanceAddr()
+	legacyAddr := NewLegacyResourceInstanceAddress(addr)
 
 	// stateId is the ID to put into the state
-	stateId := addr.stateId()
+	stateId := legacyAddr.stateId()
 
 	// Build the instance info. More of this will be populated during eval
-	info := &InstanceInfo{
-		Id:   stateId,
-		Type: addr.Type,
-	}
+	info := NewInstanceInfo(addr.ContainingResource())
+	info.Id = stateId // this behavior was preserved from older implementation, but not sure why it's done
 
 	// Build the resource for eval
-	resource := &Resource{
-		Name:       addr.Name,
-		Type:       addr.Type,
-		CountIndex: addr.Index,
-	}
-	if resource.CountIndex < 0 {
-		resource.CountIndex = 0
-	}
+	resource := NewResource(addr.Resource)
 
 	// Determine the dependencies for the state.
 	stateDeps := n.StateReferences()
 
 	// Eval info is different depending on what kind of resource this is
 	switch n.Config.Mode {
-	case config.ManagedResourceMode:
+	case addrs.ManagedResourceMode:
 		return n.evalTreeManagedResource(
 			stateId, info, resource, stateDeps,
 		)
-	case config.DataResourceMode:
+	case addrs.DataResourceMode:
 		return n.evalTreeDataResource(
 			stateId, info, resource, stateDeps)
 	default:
@@ -87,7 +90,7 @@ func (n *NodeApplyableResource) EvalTree() EvalNode {
 	}
 }
 
-func (n *NodeApplyableResource) evalTreeDataResource(
+func (n *NodeApplyableResourceInstance) evalTreeDataResource(
 	stateId string, info *InstanceInfo,
 	resource *Resource, stateDeps []string) EvalNode {
 	var provider ResourceProvider
@@ -196,7 +199,7 @@ func (n *NodeApplyableResource) evalTreeDataResource(
 	}
 }
 
-func (n *NodeApplyableResource) evalTreeManagedResource(
+func (n *NodeApplyableResourceInstance) evalTreeManagedResource(
 	stateId string, info *InstanceInfo,
 	resource *Resource, stateDeps []string) EvalNode {
 	// Declare a bunch of variables that are used for state during

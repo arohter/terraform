@@ -2,16 +2,20 @@ package terraform
 
 // NodePlannableResourceOrphan represents a resource that is "applyable":
 // it is ready to be applied and is represented by a diff.
-type NodePlannableResourceOrphan struct {
-	*NodeAbstractResource
+type NodePlannableResourceInstanceOrphan struct {
+	*NodeAbstractResourceInstance
 }
 
-func (n *NodePlannableResourceOrphan) Name() string {
-	return n.NodeAbstractResource.Name() + " (orphan)"
+var (
+	_ GraphNodeEvalable = (*NodePlannableResourceInstanceOrphan)(nil)
+)
+
+func (n *NodePlannableResourceInstanceOrphan) Name() string {
+	return n.ResourceInstanceAddr().String() + " (orphan)"
 }
 
 // GraphNodeEvalable
-func (n *NodePlannableResourceOrphan) EvalTree() EvalNode {
+func (n *NodePlannableResourceInstanceOrphan) EvalTree() EvalNode {
 	addr := n.NodeAbstractResource.Addr
 
 	// stateId is the ID to put into the state

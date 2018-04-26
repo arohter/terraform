@@ -5,6 +5,8 @@ import (
 	"log"
 	"strings"
 
+	"github.com/hashicorp/terraform/addrs"
+
 	"github.com/hashicorp/terraform/config"
 	"github.com/hashicorp/terraform/version"
 )
@@ -385,7 +387,7 @@ func (n *EvalDiffDestroy) Eval(ctx EvalContext) (interface{}, error) {
 // EvalDiffDestroyModule is an EvalNode implementation that writes the diff to
 // the full diff.
 type EvalDiffDestroyModule struct {
-	Path []string
+	Path addrs.ModuleInstance
 }
 
 // TODO: test

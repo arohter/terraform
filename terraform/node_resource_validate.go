@@ -1,6 +1,7 @@
 package terraform
 
 import (
+	"github.com/hashicorp/terraform/config/configschema"
 	"github.com/hashicorp/terraform/dag"
 )
 
@@ -36,13 +37,13 @@ func (n *NodeValidatableResource) DynamicExpand(ctx EvalContext) (*Graph, error)
 	}
 
 	// The concrete resource factory we'll use
-	concreteResource := func(a *NodeAbstractResource) dag.Vertex {
+	concreteResource := func(a *NodeAbstractResourceInstance) dag.Vertex {
 		// Add the config and state since we don't do that via transforms
 		a.Config = n.Config
 		a.ResolvedProvider = n.ResolvedProvider
 
 		return &NodeValidatableResourceInstance{
-			NodeAbstractResource: a,
+			NodeAbstractResourceInstance: a,
 		}
 	}
 
@@ -75,84 +76,65 @@ func (n *NodeValidatableResource) DynamicExpand(ctx EvalContext) (*Graph, error)
 		Name:     "NodeValidatableResource",
 	}
 
-	return b.Build(ctx.Path())
+	graph, diags := b.Build(ctx.Path())
+	return graph, diags.ErrWithWarnings()
 }
 
 // This represents a _single_ resource instance to validate.
 type NodeValidatableResourceInstance struct {
-	*NodeAbstractResource
+	*NodeAbstractResourceInstance
 }
 
 // GraphNodeEvalable
 func (n *NodeValidatableResourceInstance) EvalTree() EvalNode {
-	addr := n.NodeAbstractResource.Addr
-
-	// Build the resource for eval
-	resource := &Resource{
-		Name:       addr.Name,
-		Type:       addr.Type,
-		CountIndex: addr.Index,
-	}
-	if resource.CountIndex < 0 {
-		resource.CountIndex = 0
-	}
+	addr := n.ResourceInstanceAddr()
+	config := n.Config
 
 	// Declare a bunch of variables that are used for state during
-	// evaluation. Most of this are written to by-address below.
-	var config *ResourceConfig
+	// evaluation. These are written to via pointers passed to the EvalNodes
+	// below.
 	var provider ResourceProvider
+	var providerSchema *ProviderSchema
 
 	seq := &EvalSequence{
 		Nodes: []EvalNode{
-			&EvalValidateResourceSelfRef{
-				Addr:   &addr,
-				Config: &n.Config.RawConfig,
+			&EvalValidateSelfRef{
+				Addr:   addr.Resource,
+				Config: config.Config,
 			},
 			&EvalGetProvider{
-				Name:   n.ResolvedProvider,
+				Addr:   n.ResolvedProvider.ProviderConfig,
 				Output: &provider,
-			},
-			&EvalInterpolate{
-				Config:   n.Config.RawConfig.Copy(),
-				Resource: resource,
-				Output:   &config,
+				Schema: &providerSchema,
 			},
 			&EvalValidateResource{
-				Provider:     &provider,
-				Config:       &config,
-				ResourceName: n.Config.Name,
-				ResourceType: n.Config.Type,
-				ResourceMode: n.Config.Mode,
+				Addr:           addr.Resource,
+				Provider:       &provider,
+				ProviderSchema: &providerSchema,
+				Config:         config,
 			},
 		},
 	}
 
-	// Validate all the provisioners
-	for _, p := range n.Config.Provisioners {
-		var provisioner ResourceProvisioner
-		var connConfig *ResourceConfig
-		seq.Nodes = append(
-			seq.Nodes,
-			&EvalGetProvisioner{
-				Name:   p.Type,
-				Output: &provisioner,
-			},
-			&EvalInterpolate{
-				Config:   p.RawConfig.Copy(),
-				Resource: resource,
-				Output:   &config,
-			},
-			&EvalInterpolate{
-				Config:   p.ConnInfo.Copy(),
-				Resource: resource,
-				Output:   &connConfig,
-			},
-			&EvalValidateProvisioner{
-				Provisioner: &provisioner,
-				Config:      &config,
-				ConnConfig:  &connConfig,
-			},
-		)
+	if managed := n.Config.Managed; managed != nil {
+		// Validate all the provisioners
+		for _, p := range managed.Provisioners {
+			var provisioner ResourceProvisioner
+			var provisionerSchema *configschema.Block
+			seq.Nodes = append(
+				seq.Nodes,
+				&EvalGetProvisioner{
+					Name:   p.Type,
+					Output: &provisioner,
+					Schema: &provisionerSchema,
+				},
+				&EvalValidateProvisioner{
+					Provisioner: &provisioner,
+					Schema:      &provisionerSchema,
+					Config:      p,
+				},
+			)
+		}
 	}
 
 	return seq

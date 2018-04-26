@@ -1,14 +1,14 @@
 package terraform
 
 import (
-	"github.com/hashicorp/terraform/config"
+	"github.com/hashicorp/terraform/configs"
 )
 
 // EvalCountFixZeroOneBoundary is an EvalNode that fixes up the state
 // when there is a resource count with zero/one boundary, i.e. fixing
 // a resource named "aws_instance.foo" to "aws_instance.foo.0" and vice-versa.
 type EvalCountFixZeroOneBoundary struct {
-	Resource *config.Resource
+	Config *configs.Resource
 }
 
 // TODO: test

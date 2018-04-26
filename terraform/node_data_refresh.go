@@ -4,8 +4,7 @@ import (
 	"github.com/hashicorp/terraform/dag"
 )
 
-// NodeRefreshableDataResource represents a resource that is "plannable":
-// it is ready to be planned in order to create a diff.
+// NodeRefreshableDataResource represents a resource that is "refreshable".
 type NodeRefreshableDataResource struct {
 	*NodeAbstractCountResource
 }
@@ -86,10 +85,10 @@ func (n *NodeRefreshableDataResource) DynamicExpand(ctx EvalContext) (*Graph, er
 	return b.Build(ctx.Path())
 }
 
-// NodeRefreshableDataResourceInstance represents a _single_ resource instance
+// NodeRefreshableDataResourceInstance represents a single resource instance
 // that is refreshable.
 type NodeRefreshableDataResourceInstance struct {
-	*NodeAbstractResource
+	*NodeAbstractResourceInstance
 }
 
 // GraphNodeEvalable

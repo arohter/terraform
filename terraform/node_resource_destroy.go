@@ -7,21 +7,21 @@ import (
 )
 
 // NodeDestroyResource represents a resource that is to be destroyed.
-type NodeDestroyResource struct {
-	*NodeAbstractResource
+type NodeDestroyResourceInstance struct {
+	*NodeAbstractResourceInstance
 }
 
-func (n *NodeDestroyResource) Name() string {
-	return n.NodeAbstractResource.Name() + " (destroy)"
+func (n *NodeDestroyResourceInstance) Name() string {
+	return n.NodeAbstractResourceInstance.ResourceAddr().String() + " (destroy)"
 }
 
 // GraphNodeDestroyer
-func (n *NodeDestroyResource) DestroyAddr() *ResourceAddress {
+func (n *NodeDestroyResourceInstance) DestroyAddr() *ResourceAddress {
 	return n.Addr
 }
 
 // GraphNodeDestroyerCBD
-func (n *NodeDestroyResource) CreateBeforeDestroy() bool {
+func (n *NodeDestroyResourceInstance) CreateBeforeDestroy() bool {
 	// If we have no config, we just assume no
 	if n.Config == nil {
 		return false
@@ -31,7 +31,7 @@ func (n *NodeDestroyResource) CreateBeforeDestroy() bool {
 }
 
 // GraphNodeDestroyerCBD
-func (n *NodeDestroyResource) ModifyCreateBeforeDestroy(v bool) error {
+func (n *NodeDestroyResourceInstance) ModifyCreateBeforeDestroy(v bool) error {
 	// If we have no config, do nothing since it won't affect the
 	// create step anyways.
 	if n.Config == nil {
@@ -45,7 +45,7 @@ func (n *NodeDestroyResource) ModifyCreateBeforeDestroy(v bool) error {
 }
 
 // GraphNodeReferenceable, overriding NodeAbstractResource
-func (n *NodeDestroyResource) ReferenceableName() []string {
+func (n *NodeDestroyResourceInstance) ReferenceableName() []string {
 	// We modify our referenceable name to have the suffix of ".destroy"
 	// since depending on the creation side doesn't necessarilly mean
 	// depending on destruction.
@@ -67,7 +67,7 @@ func (n *NodeDestroyResource) ReferenceableName() []string {
 }
 
 // GraphNodeReferencer, overriding NodeAbstractResource
-func (n *NodeDestroyResource) References() []string {
+func (n *NodeDestroyResourceInstance) References() []string {
 	// If we have a config, then we need to include destroy-time dependencies
 	if c := n.Config; c != nil {
 		var result []string
@@ -87,7 +87,7 @@ func (n *NodeDestroyResource) References() []string {
 }
 
 // GraphNodeDynamicExpandable
-func (n *NodeDestroyResource) DynamicExpand(ctx EvalContext) (*Graph, error) {
+func (n *NodeDestroyResourceInstance) DynamicExpand(ctx EvalContext) (*Graph, error) {
 	// If we have no config we do nothing
 	if n.Addr == nil {
 		return nil, nil
@@ -124,7 +124,7 @@ func (n *NodeDestroyResource) DynamicExpand(ctx EvalContext) (*Graph, error) {
 }
 
 // GraphNodeEvalable
-func (n *NodeDestroyResource) EvalTree() EvalNode {
+func (n *NodeDestroyResourceInstance) EvalTree() EvalNode {
 	// stateId is the ID to put into the state
 	stateId := n.Addr.stateId()
 
